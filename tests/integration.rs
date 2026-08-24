@@ -629,3 +629,178 @@ fn unknown_command_is_an_error_with_usage() {
     assert_ne!(code, 0);
     assert!(out.contains("COMMANDS"), "{}", out);
 }
+
+// ------------------------------------------------------- update & migration
+
+use jedimem::migrate;
+use jedimem::update;
+
+#[test]
+fn version_comparison_orders_releases() {
+    assert!(update::is_newer("v0.2.0", "0.1.0"));
+    assert!(update::is_newer("0.1.1", "0.1.0"));
+    assert!(update::is_newer("v1.0.0", "0.9.9"));
+    assert!(!update::is_newer("v0.1.0", "0.1.0"));
+    assert!(!update::is_newer("v0.0.9", "0.1.0"));
+    // Garbage must never be read as "newer", or a bad tag nags every session.
+    assert!(!update::is_newer("latest", "0.1.0"));
+    assert!(!update::is_newer("", "0.1.0"));
+}
+
+#[test]
+fn migrate_reports_uninitialised_repos() {
+    let d = new_repo();
+    assert!(matches!(
+        migrate::status(&d),
+        migrate::Status::NotInitialised
+    ));
+}
+
+#[test]
+fn migrate_reports_up_to_date() {
+    let d = new_repo();
+    cli(&["init"], &d);
+    match migrate::status(&d) {
+        migrate::Status::UpToDate { format } => assert_eq!(format, migrate::SUPPORTED_FORMAT),
+        other => panic!("expected up to date, got {:?}", other),
+    }
+}
+
+#[test]
+fn a_repo_from_the_future_is_refused_not_downgraded() {
+    // The team scenario: someone upgrades first and commits format N+1. An
+    // older binary must say so loudly rather than silently skipping memories.
+    let d = new_repo();
+    cli(&["init"], &d);
+    let cfg = d.join(".jedimem/config.yml");
+    let text = std::fs::read_to_string(&cfg)
+        .unwrap()
+        .replace("format: 1", "format: 99");
+    std::fs::write(&cfg, text).unwrap();
+
+    match migrate::status(&d) {
+        migrate::Status::BinaryTooOld {
+            repo_format,
+            supported,
+        } => {
+            assert_eq!(repo_format, 99);
+            assert_eq!(supported, migrate::SUPPORTED_FORMAT);
+        }
+        other => panic!("expected BinaryTooOld, got {:?}", other),
+    }
+    let cfg_loaded = config::load(&d);
+    let err = migrate::run(&d, &cfg_loaded, false).unwrap_err();
+    assert!(err.contains("do NOT downgrade"), "{}", err);
+    // and the stamp must be untouched
+    assert!(std::fs::read_to_string(&cfg)
+        .unwrap()
+        .contains("format: 99"));
+}
+
+#[test]
+fn memories_too_new_to_parse_are_detected() {
+    let d = new_repo();
+    cli(&["init"], &d);
+    let mut m = active("convention", "A rule written by a newer jedimem.", "**");
+    m.format = 7;
+    std::fs::write(
+        d.join(".jedimem/memories").join(format!("{}.md", m.id)),
+        m.to_text(),
+    )
+    .unwrap();
+    let found = migrate::unreadable_memories(&d);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].1, 7);
+}
+
+#[test]
+fn session_start_always_exits_zero() {
+    // The fail-open contract. A memory tool that occasionally injects nothing
+    // is a minor disappointment; one that breaks the agent is uninstalled.
+    let d = new_repo();
+    assert_eq!(cli(&["session-start"], &d).1, 0, "uninitialised repo");
+
+    cli(&["init"], &d);
+    assert_eq!(cli(&["session-start"], &d).1, 0, "initialised repo");
+
+    // corrupt config
+    std::fs::write(d.join(".jedimem/config.yml"), "\u{0}not: [valid\n").unwrap();
+    assert_eq!(cli(&["session-start"], &d).1, 0, "corrupt config");
+
+    // repo from the future
+    std::fs::write(d.join(".jedimem/config.yml"), "format: 99\n").unwrap();
+    assert_eq!(cli(&["session-start"], &d).1, 0, "future format");
+
+    // outside a git repo entirely
+    let plain = std::env::temp_dir().join(format!("jedimem-nogit-{}", ulid()));
+    std::fs::create_dir_all(&plain).unwrap();
+    assert_eq!(cli(&["session-start"], &plain).1, 0, "not a git repo");
+}
+
+#[test]
+fn session_start_is_silent_when_there_is_nothing_to_say() {
+    let d = new_repo();
+    cli(&["init"], &d);
+    cli(&["compile"], &d);
+    let (out, code) = cli(&["session-start"], &d);
+    assert_eq!(code, 0);
+    assert!(
+        out.trim().is_empty(),
+        "must not add noise every session: {:?}",
+        out
+    );
+}
+
+#[test]
+fn session_start_json_is_well_formed_and_escaped() {
+    let d = new_repo();
+    std::fs::write(
+        d.join("CLAUDE.md"),
+        "# R\n- Use httpClient, never axios \"directly\".\n",
+    )
+    .unwrap();
+    cli(&["init"], &d);
+    cli(&["import", "--stage"], &d);
+    let (out, code) = cli(&["session-start", "--json"], &d);
+    assert_eq!(code, 0);
+    let line = out.lines().find(|l| l.starts_with('{')).expect("json line");
+    assert!(line.contains("\"hookEventName\":\"SessionStart\""));
+    assert!(line.contains("additionalContext"));
+    assert!(line.ends_with("}}"), "{}", line);
+    // Naive quoting would break the payload; check quotes are escaped.
+    let body = line.split("\"additionalContext\":\"").nth(1).unwrap();
+    assert!(!body.trim_end_matches("\"}}").contains("\"") || body.contains("\\\""));
+    // Must be one line: the hook protocol reads a single JSON object.
+    assert_eq!(out.lines().filter(|l| l.starts_with('{')).count(), 1);
+}
+
+#[test]
+fn session_start_reports_pending_and_staleness() {
+    let d = new_repo();
+    std::fs::write(
+        d.join("CLAUDE.md"),
+        "# R\n- Use httpClient, never axios directly.\n",
+    )
+    .unwrap();
+    cli(&["init"], &d);
+    cli(&["import", "--stage"], &d);
+    let (out, _) = cli(&["session-start"], &d);
+    assert!(out.contains("awaiting review"), "{}", out);
+}
+
+#[test]
+fn migrate_check_is_ci_friendly() {
+    let d = new_repo();
+    cli(&["init"], &d);
+    assert_eq!(cli(&["migrate", "--check"], &d).1, 0);
+    let cfg = d.join(".jedimem/config.yml");
+    let text = std::fs::read_to_string(&cfg)
+        .unwrap()
+        .replace("format: 1", "format: 99");
+    std::fs::write(&cfg, text).unwrap();
+    assert_eq!(
+        cli(&["migrate", "--check"], &d).1,
+        1,
+        "must fail CI when out of date"
+    );
+}

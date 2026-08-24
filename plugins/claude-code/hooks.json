@@ -1,20 +1,62 @@
 {
-  "description": "jedimem capture. Identical schema is accepted by Claude Code and Codex; see docs/research/02-codex.md.",
+  "description": "jedimem. Identical schema is accepted by Claude Code and Codex; see docs/research/02-codex.md. SessionStart is synchronous because it INJECTS context (an async hook is fire-and-forget and cannot); it costs ~7ms and never touches the network.",
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" session_start", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jedimem session-start --json 2>/dev/null || true",
+            "statusMessage": "jedimem",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" prompt", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" prompt",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "Edit|Write|Bash", "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" tool", "timeout": 5 } ] }
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" tool",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" stop", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" stop",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" session_end", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" session_end",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

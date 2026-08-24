@@ -23,5 +23,6 @@ Hand-written content lives here and is never touched by jedimem.
 ## Available on request
 Ask for these by name, or read the file. They are not loaded by default to keep this file small.
 - **[decision]** Brownfield import is deterministic and offline: no importer may call an LLM. → `.jedimem/memories/01J8XR6G0000000000000IMPORTDET.md`
+- **[decision]** Update checks use `git ls-remote` behind a jittered 24h TTL, run detached, and never auto-install. → `.jedimem/memories/01J8XR6J0000000000000UPDATECHK.md`
 
 <!-- END jedimem -->

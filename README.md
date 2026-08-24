@@ -66,17 +66,76 @@ evidence that unbounded memory *lowers* agent accuracy, and suggests a slice you
 can actually review. And when a source file is also a compile target, it warns
 that you would otherwise carry the same rule twice.
 
+## Staying current
+
+jedimem is meant to move. A `SessionStart` hook keeps an installed setup honest
+without ever getting in the way:
+
+```
+session starts
+   │
+   ├─ jedimem session-start        ~7 ms, no network, ALWAYS exits 0
+   │     • repo format behind the binary?   → "run jedimem migrate"
+   │     • binary behind the repo?          → "run jedimem update" (loud)
+   │     • memories pending review?         → says how many
+   │     • compiled files stale?            → says which
+   │     └ silent when there is nothing to say
+   │
+   └─ update check runs DETACHED, at most once a day per machine
+         result is read from cache next session; this one never waits
+```
+
+Three rules this obeys, each for a measured reason:
+
+- **The check is never in the critical path.** It is detached and TTL-gated
+  (24 h, jittered per machine so a team starting at 09:00 doesn't stampede).
+  Offline is a no-op, not an error.
+- **It uses `git ls-remote`, not the GitHub API.** Unauthenticated REST is 60/hr
+  *per IP* and `304 Not Modified` responses still decrement the quota — a team
+  behind one NAT would exhaust it.
+- **jedimem never installs itself.** It prints the command. New code should run
+  on your machine when you choose the moment, not when a background process
+  does.
+
+### Migrations
+
+Memory files are committed and live in git history forever, so a format change
+is a migration, not a refactor.
+
+```bash
+jedimem migrate --check    # exit 1 if this repo is behind (for CI)
+jedimem migrate --dry-run  # show what would change
+jedimem migrate            # rewrite the files, then YOU review and commit
+```
+
+`jedimem migrate` **never commits.** It rewrites tracked files and tells you to
+review the diff — the same rule that stops the capture path touching your branch.
+
+The dangerous direction is the other one: on a team, someone upgrades first and
+commits memories in the new format. An older binary must not silently skip
+what it cannot parse. So it refuses:
+
+```
+$ jedimem migrate
+this repo is at format 99 but this jedimem only understands 1.
+A teammate upgraded first. Run `jedimem update` to catch up --
+do NOT downgrade the repo, and do not edit memories until you have.
+```
+
+`jedimem doctor` prints all of it at once when something looks wrong.
+
 ## Status
 
 | Piece | State |
 |---|---|
-| `jedimem init / import / review / compile / status / why / contest / list / lint / pause` | **working**, 37 tests |
+| `init / import / review / compile / status / why / contest / list / lint / pause` | **working** |
+| `session-start / update / migrate / doctor` — self-updating setup | **working** |
 | import from instructions, ADRs, CODEOWNERS, git reverts | **working**, deterministic and offline |
 | lock-free staging ref, redaction, budget demotion, provenance | **working** |
 | capture hooks wired by an installer; LLM extraction from live sessions | designed, **not built** |
 
 ```bash
-cargo test --release          # 37 tests
+cargo test --release          # 47 tests
 cargo clippy -- -D warnings   # clean
 ./bin/jedimem lint            # memory files valid
 ./bin/jedimem compile --check # CI: fails if compiled files are stale

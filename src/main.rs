@@ -8,8 +8,10 @@ use jedimem::compiler;
 use jedimem::config::{self, Config};
 use jedimem::importers::{self, SOURCES};
 use jedimem::memory::{kind_info, ulid, Memory, KINDS, LOCAL_ONLY_KINDS};
+use jedimem::migrate;
 use jedimem::repo;
 use jedimem::store::Store;
+use jedimem::update;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -756,6 +758,10 @@ COMMANDS
   why <text|handle>        where did this memory come from?
   contest <handle> <why>   mark a memory disputed (never deletes)
   lint                     validate memory files (for CI)
+  migrate [--check]        bring this repo's files up to the current format
+  update [--force]         check whether a newer jedimem exists (never installs)
+  doctor                   diagnose this installation
+  session-start [--json]   hook entry point: always exits 0, never blocks
   pause | resume           stop or restart capture in this repo
 
 IMPORT OPTIONS
@@ -815,6 +821,21 @@ fn main() -> ExitCode {
         }
     };
 
+    // These must work outside a repo: session-start is a hook and must never
+    // fail, and update is about the binary, not the checkout.
+    if args.cmd == "session-start" {
+        return ExitCode::from(cmd_session_start(&args) as u8);
+    }
+    if args.cmd == "update" && ctx(&args).is_err() {
+        return match cmd_update(&args, None) {
+            Ok(code) => ExitCode::from(code as u8),
+            Err(e) => {
+                eprintln!("{}{}{}", s.red, e, s.off);
+                ExitCode::from(1)
+            }
+        };
+    }
+
     // `import --list-sources` must work without a repo.
     if args.cmd == "import" && args.has("--list-sources") {
         println!("import sources:");
@@ -842,6 +863,9 @@ fn main() -> ExitCode {
         "why" => cmd_why(&args, &c),
         "contest" => cmd_contest(&args, &c),
         "lint" => cmd_lint(&args, &c),
+        "migrate" => cmd_migrate(&args, &c),
+        "update" => cmd_update(&args, Some(&c)),
+        "doctor" => cmd_doctor(&args, &c),
         "pause" => cmd_pause("pause", &c),
         "resume" => cmd_pause("resume", &c),
         other => Err(format!("unknown command {:?}\n\n{}", other, usage())),
@@ -854,4 +878,369 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+// ------------------------------------------------------- update & migration
+
+fn cmd_migrate(a: &Args, c: &Ctx) -> Result<i32, String> {
+    let s = style();
+    let dry = a.has("--dry-run");
+    if a.has("--check") {
+        return match migrate::status(&c.root) {
+            migrate::Status::UpToDate { format } => {
+                println!("up to date (format {})", format);
+                Ok(0)
+            }
+            migrate::Status::NotInitialised => {
+                println!("not initialised here");
+                Ok(0)
+            }
+            migrate::Status::Pending { from, ids } => {
+                println!(
+                    "{}PENDING{}: format {} -> {} ({})",
+                    s.yel,
+                    s.off,
+                    from,
+                    migrate::SUPPORTED_FORMAT,
+                    ids.join(", ")
+                );
+                Ok(1)
+            }
+            migrate::Status::BinaryTooOld {
+                repo_format,
+                supported,
+            } => {
+                println!(
+                    "{}jedimem is out of date{}: repo is format {}, this binary \
+                          understands {}",
+                    s.red, s.off, repo_format, supported
+                );
+                Ok(1)
+            }
+        };
+    }
+    let applied = migrate::run(&c.root, &c.cfg, dry)?;
+    if applied.ran.is_empty() && applied.from == applied.to {
+        println!("up to date (format {})", applied.to);
+        return Ok(0);
+    }
+    println!(
+        "{}format {} -> {}{}",
+        s.bold, applied.from, applied.to, s.off
+    );
+    for r in &applied.ran {
+        println!("  {} {}", if dry { "would run" } else { "ran" }, r);
+    }
+    if dry {
+        println!("\n{}Dry run: nothing written.{}", s.dim, s.off);
+        return Ok(0);
+    }
+    if applied.changed.is_empty() {
+        println!("  no files needed changing");
+    } else {
+        for ch in &applied.changed {
+            println!("  changed {}", ch);
+        }
+        // Migrations rewrite tracked files. Committing is the human's act --
+        // the same rule that stops the capture path touching your branch.
+        println!(
+            "\n{}Review and commit these changes.{} jedimem does not commit for you.",
+            s.yel, s.off
+        );
+    }
+    Ok(0)
+}
+
+fn cmd_update(a: &Args, c: Option<&Ctx>) -> Result<i32, String> {
+    let s = style();
+    let quiet = a.has("--quiet");
+    let remote = a
+        .one("remote")
+        .unwrap_or_else(|| update::UPSTREAM.to_string());
+
+    if a.has("--check-only") {
+        // The detached path: perform the network check, cache it, say nothing.
+        let got = update::check_now(&remote);
+        if !quiet {
+            if got.error.is_empty() {
+                println!("latest: {}", got.latest);
+            } else {
+                println!("check failed: {}", got.error);
+            }
+        }
+        return Ok(0);
+    }
+
+    let mut cached = update::read_cache();
+    if update::is_stale(&cached) || a.has("--force") {
+        if !quiet {
+            println!("checking {} …", remote);
+        }
+        cached = update::check_now(&remote);
+    }
+    if !cached.error.is_empty() {
+        println!(
+            "{}could not check for updates:{} {}",
+            s.dim, s.off, cached.error
+        );
+        println!("  (offline is fine -- jedimem never requires the network)");
+        return Ok(0);
+    }
+    if cached.latest.is_empty() {
+        println!("no release tags found upstream");
+        return Ok(0);
+    }
+    if !update::is_newer(&cached.latest, jedimem::VERSION) {
+        println!(
+            "jedimem {} is current (latest {})",
+            jedimem::VERSION,
+            cached.latest
+        );
+    } else {
+        println!(
+            "{}jedimem {} is available{} (you have {})",
+            s.grn,
+            cached.latest,
+            s.off,
+            jedimem::VERSION
+        );
+        println!(
+            "\n  cargo install --git {} --tag {} --force",
+            remote, cached.latest
+        );
+        println!(
+            "\n{}jedimem never installs itself.{} New code should run on your \
+                  machine when you\n  choose the moment, not when a background \
+                  process does.",
+            s.bold, s.off
+        );
+    }
+    // Whether or not the binary is current, the repo may need migrating.
+    if let Some(c) = c {
+        match migrate::status(&c.root) {
+            migrate::Status::Pending { from, .. } => println!(
+                "\n{}This repo is at format {} and needs migrating{} -> run `jedimem migrate`",
+                s.yel, from, s.off
+            ),
+            migrate::Status::BinaryTooOld {
+                repo_format,
+                supported,
+            } => println!(
+                "\n{}This repo is at format {} but this binary understands {}{} -- upgrade first.",
+                s.red, repo_format, supported, s.off
+            ),
+            _ => {}
+        }
+    }
+    Ok(0)
+}
+
+/// Everything a SessionStart hook does.
+///
+/// Contract: **always exit 0, never touch the network, never block.** A memory
+/// tool that occasionally injects nothing is a minor disappointment; one that
+/// occasionally breaks the agent is uninstalled the same day.
+fn cmd_session_start(a: &Args) -> i32 {
+    let json = a.has("--json");
+    let mut notes: Vec<String> = Vec::new();
+
+    // Everything below is best-effort. Any failure degrades to "no notes".
+    if let Ok(c) = ctx(a) {
+        if !c.cfg.flag("paused") {
+            match migrate::status(&c.root) {
+                migrate::Status::BinaryTooOld {
+                    repo_format,
+                    supported,
+                } => notes.push(format!(
+                    "jedimem is OUT OF DATE: this repo's memories are format {} but the \
+                     installed jedimem understands {}. Memories may be skipped. \
+                     Run `jedimem update`, then `jedimem migrate`.",
+                    repo_format, supported
+                )),
+                migrate::Status::Pending { from, .. } => notes.push(format!(
+                    "jedimem: this repo is at format {} and needs migrating to {}. \
+                     Run `jedimem migrate` (it writes files for you to review; it does \
+                     not commit).",
+                    from,
+                    migrate::SUPPORTED_FORMAT
+                )),
+                _ => {}
+            }
+
+            let unreadable = migrate::unreadable_memories(&c.root);
+            if !unreadable.is_empty() {
+                notes.push(format!(
+                    "jedimem: {} memory file(s) use a newer format than this binary and \
+                     are being ignored. Run `jedimem update`.",
+                    unreadable.len()
+                ));
+            }
+
+            let pending = c.store.pending().len();
+            if pending > 0 {
+                notes.push(format!(
+                    "jedimem: {} captured memory candidate(s) awaiting review \
+                     (`jedimem review`).",
+                    pending
+                ));
+            }
+
+            if let Ok(stale) = compiler::compile_repo(
+                &c.root,
+                &c.store.all(false).unwrap_or_default(),
+                &c.cfg,
+                true,
+            ) {
+                if !stale.is_empty() {
+                    notes.push(format!(
+                        "jedimem: {} is stale -- run `jedimem compile`.",
+                        stale.join(", ")
+                    ));
+                }
+            }
+        }
+    }
+
+    // The update check is the ONLY part that would touch the network, so it is
+    // detached: this process never waits on it, and the result is read next
+    // session from cache.
+    let cached = update::read_cache();
+    if update::is_stale(&cached) {
+        update::spawn_background_check();
+    } else if !cached.latest.is_empty()
+        && cached.error.is_empty()
+        && update::is_newer(&cached.latest, jedimem::VERSION)
+    {
+        notes.push(format!(
+            "jedimem {} is available (you have {}). Run `jedimem update` for the command.",
+            cached.latest,
+            jedimem::VERSION
+        ));
+    }
+
+    if notes.is_empty() {
+        return 0;
+    }
+    if json {
+        // The hook protocol shared by Claude Code and Codex. Keep it small:
+        // injected context competes with the user's actual task.
+        let body = notes.join(" ");
+        let escaped = body
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', " ");
+        println!(
+            "{{\"hookSpecificOutput\":{{\"hookEventName\":\"SessionStart\",\
+             \"additionalContext\":\"{}\"}}}}",
+            escaped
+        );
+    } else {
+        for n in &notes {
+            println!("{}", n);
+        }
+    }
+    0
+}
+
+fn cmd_doctor(_a: &Args, c: &Ctx) -> Result<i32, String> {
+    let s = style();
+    println!("{}jedimem {}{}", s.bold, jedimem::VERSION, s.off);
+    println!(
+        "  binary        {}",
+        std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "?".into())
+    );
+    println!("  repo          {}", c.root.display());
+    println!(
+        "  repo_id       {}",
+        if c.cfg.get("repo_id").is_empty() {
+            "unset".into()
+        } else {
+            c.cfg.get("repo_id").to_string()
+        }
+    );
+
+    let git_ok = repo::run(&["--version"], None)
+        .map(|(v, ok)| if ok { v } else { String::new() })
+        .unwrap_or_default();
+    println!(
+        "  git           {}",
+        if git_ok.is_empty() {
+            format!(
+                "{}NOT FOUND -- jedimem cannot work without git{}",
+                s.red, s.off
+            )
+        } else {
+            git_ok
+        }
+    );
+
+    print!("  format        ");
+    match migrate::status(&c.root) {
+        migrate::Status::UpToDate { format } => {
+            println!("{}{} (up to date){}", s.grn, format, s.off)
+        }
+        migrate::Status::NotInitialised => {
+            println!("{}not initialised -- run `jedimem init`{}", s.yel, s.off)
+        }
+        migrate::Status::Pending { from, ids } => println!(
+            "{}{} -> {} pending: {}{}",
+            s.yel,
+            from,
+            migrate::SUPPORTED_FORMAT,
+            ids.join(", "),
+            s.off
+        ),
+        migrate::Status::BinaryTooOld {
+            repo_format,
+            supported,
+        } => println!(
+            "{}repo is {} but this binary understands {} -- UPGRADE{}",
+            s.red, repo_format, supported, s.off
+        ),
+    }
+
+    let unreadable = migrate::unreadable_memories(&c.root);
+    if !unreadable.is_empty() {
+        println!(
+            "  {}{} memory file(s) too new to read{}",
+            s.red,
+            unreadable.len(),
+            s.off
+        );
+    }
+
+    let cached = update::read_cache();
+    print!("  updates       ");
+    if cached.checked_at == 0 {
+        println!("never checked ({}) ", update::cache_path().display());
+    } else if !cached.error.is_empty() {
+        println!("{}last check failed: {}{}", s.dim, cached.error, s.off);
+    } else if update::is_newer(&cached.latest, jedimem::VERSION) {
+        println!("{}{} available{}", s.grn, cached.latest, s.off);
+    } else {
+        println!("current (latest seen: {})", cached.latest);
+    }
+
+    println!("  staging ref   {}", c.cfg.get("staging_ref"));
+    println!(
+        "  capture       {}",
+        if c.cfg.flag("paused") {
+            format!("{}PAUSED{}", s.yel, s.off)
+        } else {
+            "active".into()
+        }
+    );
+
+    // Worktrees share memory but keep separate local state; say which we are in.
+    if let Ok(wts) = repo::worktrees(Some(&c.root)) {
+        if wts.len() > 1 {
+            println!(
+                "  worktrees     {} (memory is shared across all of them)",
+                wts.len()
+            );
+        }
+    }
+    Ok(0)
 }

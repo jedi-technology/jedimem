@@ -106,6 +106,33 @@ packages on startup after the project is trusted.
 Removes hooks and generated sections. **Leaves your memories** — they are your
 team's files, not ours. `git status` is clean afterwards; this is checked in CI.
 
+## 3b. Keeping up to date
+
+Nobody has to remember to update. Every session start runs a ~7 ms local check
+that tells you — through the agent — when something needs doing:
+
+- this repo's memory format is behind your binary → `jedimem migrate`
+- your binary is behind the repo (a teammate upgraded first) → `jedimem update`
+- candidates are waiting for review, or compiled files are stale
+
+It is silent when there is nothing to say, so it does not become noise you learn
+to ignore.
+
+The upstream version check runs **detached, at most once a day per machine**, and
+is a no-op offline. **jedimem never installs itself** — it prints the command and
+you choose when to run it.
+
+```bash
+jedimem update             # is there a newer jedimem?
+jedimem migrate --check    # is this repo behind? (exit 1 = yes; good for CI)
+jedimem migrate            # rewrite files; then you review and commit
+jedimem doctor             # everything at once, when something looks off
+```
+
+**Add `jedimem migrate --check` to CI** alongside `compile --check`. It catches
+the case where someone lands memories in a newer format than the rest of the
+team can read.
+
 ## 4. Daily use
 
 Mostly you do nothing. Capture is automatic and invisible.

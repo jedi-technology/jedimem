@@ -39,6 +39,17 @@ jobs:
         run: ./target/release/jedimem lint
       - name: compiled instruction files are not stale
         run: ./target/release/jedimem compile --check
+      - name: repo format matches the binary
+        # Catches someone landing memories in a format the rest of the team
+        # cannot read yet.
+        run: ./target/release/jedimem migrate --check
+      - name: session-start honours the fail-open contract
+        run: |
+          set -e
+          for dir in . /tmp; do
+            ( cd "$dir" && "$GITHUB_WORKSPACE/target/release/jedimem" session-start ) \
+              || { echo "session-start must always exit 0 (failed in $dir)"; exit 1; }
+          done
       - name: dependency budget
         run: |
           # Supply chain is threat T1 in SECURITY.md. Keep direct deps few and

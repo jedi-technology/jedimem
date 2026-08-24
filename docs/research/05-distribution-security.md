@@ -1,7 +1,7 @@
 # Distribution, installation, self-update, and security
 
 **Method.** Claude Code claims are reverse-engineered from the installed bundle at
-`/home/ubuntu/.local/share/claude/versions/2.1.241` (342 MB Bun single-file ELF, not
+`~/.local/share/claude/versions/2.1.241` (342 MB Bun single-file ELF, not
 stripped; `grep -a` / `dd` on byte offsets) **and** confirmed by running the real CLI
 against a throwaway repo and observing what it wrote to disk. Every global mutation
 made during testing was backed up and restored; the machine is in its original state.

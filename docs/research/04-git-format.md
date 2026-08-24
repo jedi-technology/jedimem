@@ -431,7 +431,7 @@ content_hash: 3f9a1c8e2b04
 provenance:
   source: session
   agent: claude-code
-  session: 3803e5d3-7194-4f6b-bde4-93df38d378ef
+  session: 0000aaaa-1111-2222-3333-444455556666
   turn: 41
   commit: 9a1f2c3
   captured_at: 2026-08-24T06:31:00Z

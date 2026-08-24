@@ -34,7 +34,7 @@ VERIFIED against this machine unless labelled otherwise.
 
 ```
 $ readlink -f $(which codex)
-/home/ubuntu/.codex/packages/standalone/releases/0.149.0-x86_64-unknown-linux-musl/bin/codex
+~/.codex/packages/standalone/releases/0.149.0-x86_64-unknown-linux-musl/bin/codex
 $ file <that>
 ELF 64-bit LSB pie executable, x86-64, static-pie linked, stripped
 $ ls -la <that>   →  258,322,048 bytes
@@ -51,7 +51,7 @@ Found by reading the user's actual global config, `~/.codex/config.toml`:
 ```toml
 [hooks.state]
 
-[hooks.state."/home/ubuntu/projects/birdwatch/.codex/hooks.json:post_tool_use:0:0"]
+[hooks.state."/home/dev/projects/acme-api/.codex/hooks.json:post_tool_use:0:0"]
 trusted_hash = "sha256:91b57a3b21e8450e4af2a92639bc6a0efd74d745392041270e11b4f07de361c6"
 ```
 

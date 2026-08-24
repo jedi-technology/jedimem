@@ -4,3 +4,7 @@
 # Editors / OS
 .DS_Store
 *.swp
+
+# Python bytecode from bin/ tooling
+__pycache__/
+*.pyc

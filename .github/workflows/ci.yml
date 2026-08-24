@@ -4,7 +4,7 @@ jobs:
   compiled-not-stale:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: compiled instruction files are up to date
         run: ./bin/jedimem-compile --check
   tests:
@@ -13,5 +13,5 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: sh tests/test_compile.sh

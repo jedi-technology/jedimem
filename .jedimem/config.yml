@@ -1,0 +1,38 @@
+# jedimem repo configuration — committed and shared.
+format: 1
+
+# Authoritative repo identity. Generated once, committed, never derived.
+# A root-commit hash is NOT stable (shallow clones change it) and a remote URL
+# has several spellings. See docs/research/04-git-format.md, exp 5.
+repo_id: 01J8XR5T0000JEDIMEMREPO01
+
+# Budget for the always-in-context tier, in characters.
+# Hard-capped for a measured reason: unbounded memory growth LOWERS agent
+# accuracy. Claude Code injections cap at 10,000 chars and Codex silently
+# truncates AGENTS.md at project_doc_max_bytes, so we enforce our own limit
+# and DEMOTE rather than truncate.
+budgets:
+  always_chars: 6000
+  scoped_chars_per_glob: 4000
+
+# Which memory kinds are captured here. See docs/MEMORY-KINDS.md.
+kinds:
+  auto_propose: [convention, gotcha, workflow, topic, style, flaky, ownership]
+  human_required: [requirement, constraint, decision, negative, migration]
+  local_only: [preference, environment]
+
+# Compile targets. Delivery needs no per-agent integration: these are just
+# the files the agents already read.
+compile:
+  targets:
+    - AGENTS.md      # Codex, pi, and most others
+    - CLAUDE.md      # Claude Code, pi
+  marker_begin: "<!-- BEGIN jedimem -->"
+  marker_end: "<!-- END jedimem -->"
+
+capture:
+  # Batched, never per-turn: headless extraction bills ~27.5k tokens BEFORE
+  # payload, so per-turn costs 15x more for identical output.
+  # See docs/research/07-monitor-runtime.md.
+  batch_window_minutes: 30
+  staging_ref: refs/jedimem/log

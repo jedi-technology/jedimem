@@ -1,0 +1,6 @@
+{
+  "_comment": "Commit this as <repo>/.pi/settings.json. pi installs missing packages automatically on startup once the project is trusted, so teammates need no install command. Always pin a ref — never track a floating branch.",
+  "packages": [
+    "git:github.com/jedi-technology/jedimem@v0.1.0"
+  ]
+}

@@ -1,0 +1,9 @@
+# Memory files are line-oriented markdown. Force LF so Windows checkouts
+# don't rewrite every memory and produce phantom diffs.
+.jedimem/**           text eol=lf
+*.md                  text eol=lf
+
+# Compiled output is generated. Keep it out of language stats and reduce
+# review noise. NOTE: deliberately NOT merge=union — union merge silently
+# resurrects deleted facts (see docs/research/04-git-format.md, exp 2c).
+.jedimem/compiled/**  linguist-generated=true

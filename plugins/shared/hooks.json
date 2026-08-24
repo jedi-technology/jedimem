@@ -1,0 +1,20 @@
+{
+  "description": "jedimem capture. Identical schema is accepted by Claude Code and Codex; see docs/research/02-codex.md.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" session_start", "timeout": 5 } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" prompt", "timeout": 5 } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|Bash", "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" tool", "timeout": 5 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" stop", "timeout": 5 } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "sh \"$(git rev-parse --show-toplevel)/.jedimem/bin/capture.sh\" session_end", "timeout": 5 } ] }
+    ]
+  }
+}

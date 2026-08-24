@@ -1,0 +1,6 @@
+# jedimem per-user, per-machine state — never committed
+.jedimem/local/
+
+# Editors / OS
+.DS_Store
+*.swp

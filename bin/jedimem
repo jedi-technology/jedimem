@@ -1,4 +1,11 @@
 #!/bin/sh
-# jedimem launcher. Standard library only -- no venv, no pip, no network.
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PYTHONPATH="$here/../src:${PYTHONPATH:-}" exec python3 -m jedimem "$@"
+# Dev convenience wrapper: builds on first use, then runs the release binary.
+# Releases ship the binary directly; this exists so `./bin/jedimem` works from a
+# fresh clone without anyone having to remember cargo incantations.
+set -e
+here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+bin="$here/target/release/jedimem"
+if [ ! -x "$bin" ] || [ "$here/src/main.rs" -nt "$bin" ]; then
+  cargo build --release --manifest-path "$here/Cargo.toml" >&2
+fi
+exec "$bin" "$@"

@@ -1,0 +1,35 @@
+[package]
+name = "jedimem"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Team memory for coding agents, stored as files in your repo."
+license = "Apache-2.0"
+repository = "https://github.com/jedi-technology/jedimem"
+
+# Dependency policy: minimal and justified. Supply chain is threat T1 in our own
+# SECURITY.md, and every crate here executes on a teammate's machine.
+#   regex     -- redaction patterns and kind inference. rust-lang official.
+#   sha2      -- content hashing for dedup. RustCrypto, widely audited.
+#   getrandom -- ULID entropy. rust-random, tiny surface.
+# Deliberately NOT used:
+#   clap   -- our arg surface is small; hand-rolled parsing avoids a large tree.
+#   chrono -- we need exactly one format (UTC ISO-8601); ~30 lines of std.
+#   serde  -- we hand-parse our own frontmatter and config subset anyway.
+[dependencies]
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
+sha2 = "0.10"
+getrandom = "0.2"
+
+# Already in the tree via getrandom, so this adds no new compiled code. Needed
+# to restore default SIGPIPE: Rust ignores it, so `jedimem list | head` panics
+# with "failed printing to stdout: Broken pipe" instead of exiting quietly.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

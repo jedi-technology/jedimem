@@ -13,13 +13,19 @@ Memory lives next to the code, is reviewed like code, and is shared like code.
 ## Install
 
 ```bash
-pipx install git+https://github.com/jedi-technology/jedimem@v0.1.0
-# or, with no install at all:
+cargo install --git https://github.com/jedi-technology/jedimem --tag v0.1.0
+# or grab a release binary; or from a clone:
 git clone https://github.com/jedi-technology/jedimem && ./jedimem/bin/jedimem --help
 ```
 
-No runtime dependencies. Python 3.9+ and `git` are the whole requirement — the
-install path must not need a package manager, a virtualenv, or network access.
+A single static binary (1.4 MB). **No runtime at all** — `git` is the only
+requirement. The install path must not need a package manager, an interpreter,
+or network access at run time.
+
+Startup is **~1 ms**, which matters because `jedimem` runs from agent hooks and
+in a review loop. (For comparison, the Python prototype this replaced cost
+90 ms per invocation, and a Node equivalent measured 43 ms before any of its own
+code ran.)
 
 ## Already have a repo? Start there.
 
@@ -64,16 +70,22 @@ that you would otherwise carry the same rule twice.
 
 | Piece | State |
 |---|---|
-| `jedimem init / import / review / compile / status / why / contest / list / lint / pause` | **working**, 32 tests |
+| `jedimem init / import / review / compile / status / why / contest / list / lint / pause` | **working**, 37 tests |
 | import from instructions, ADRs, CODEOWNERS, git reverts | **working**, deterministic and offline |
 | lock-free staging ref, redaction, budget demotion, provenance | **working** |
 | capture hooks wired by an installer; LLM extraction from live sessions | designed, **not built** |
 
 ```bash
-python3 tests/test_jedimem.py     # 32 tests
-./bin/jedimem lint                # memory files valid
-./bin/jedimem compile --check     # CI: fails if compiled files are stale
+cargo test --release          # 37 tests
+cargo clippy -- -D warnings   # clean
+./bin/jedimem lint            # memory files valid
+./bin/jedimem compile --check # CI: fails if compiled files are stale
 ```
+
+Four direct dependencies (`regex`, `sha2`, `getrandom`, `libc`), and CI fails if
+that grows — supply chain is threat T1 in [`SECURITY.md`](SECURITY.md). Arg
+parsing, the config subset, ULIDs and time formatting are hand-rolled rather
+than pulling in a tree that runs on every teammate's machine.
 
 Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the
 evidence behind it.

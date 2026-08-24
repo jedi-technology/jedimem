@@ -1,6 +1,9 @@
 name: ci
 on: [push, pull_request]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -8,35 +11,39 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python: ["3.9", "3.12"]
-        exclude:
-          - os: macos-latest
-            python: "3.9"
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0          # importers read git history
-      - uses: actions/setup-python@v6
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: ${{ matrix.python }}
-      - name: configure git (staging ref writes need an identity)
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: configure git (staging-ref writes need an identity)
         run: |
           git config --global user.email ci@example.com
           git config --global user.name CI
           git config --global init.defaultBranch main
-      - run: python3 tests/test_jedimem.py
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --release
 
   self-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
       - name: memory files are valid
-        run: ./bin/jedimem lint
+        run: ./target/release/jedimem lint
       - name: compiled instruction files are not stale
-        run: ./bin/jedimem compile --check
-      - name: no runtime dependencies
+        run: ./target/release/jedimem compile --check
+      - name: dependency budget
         run: |
-          if grep -qE '^\s*(import|from)\s+(?!jedimem)' -P src/jedimem/*.py \
-             | grep -vE 'argparse|dataclasses|fnmatch|hashlib|os|pathlib|re|subprocess|sys|tempfile|time|importlib|threading|__future__|jedimem'; then
-            echo "unexpected import (stdlib only, by design)"; exit 1
-          fi
+          # Supply chain is threat T1 in SECURITY.md. Keep direct deps few and
+          # justified; fail loudly if someone adds one without discussion.
+          cargo tree --depth 1 | tail -n +2
+          n=$(cargo tree --depth 1 | tail -n +2 | grep -c '^[├└]')
+          echo "direct dependencies: $n"
+          test "$n" -le 5 || { echo "too many direct dependencies"; exit 1; }

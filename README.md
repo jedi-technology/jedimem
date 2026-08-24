@@ -137,6 +137,7 @@ Nothing else. No writes outside those paths.
 | [`02-codex.md`](docs/research/02-codex.md) | Codex's hook system is a near-clone of Claude Code's; in-repo hooks pinned by SHA-256; Codex already ships a two-phase memory pipeline |
 | [`03-pi.md`](docs/research/03-pi.md) | pi has 32 extension events, full context control, and auto-provisions from a committed settings file |
 | [`04-git-format.md`](docs/research/04-git-format.md) | `merge=union` silently resurrects deleted facts; `index.lock` silently loses memories; the side-ref design that fixes both |
+| [`05-distribution-security.md`](docs/research/05-distribution-security.md) | zero-command install for Claude Code and pi — and why that same path is a standing RCE primitive; full threat model |
 | [`07-monitor-runtime.md`](docs/research/07-monitor-runtime.md) | headless extraction costs 27.5k tokens before payload — why batching is architectural |
 
 ## License

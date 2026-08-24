@@ -133,6 +133,30 @@ memory hook must always exit 0; and **nothing can inject after compaction**.
 Codex specifics: `project_doc_max_bytes` caps `AGENTS.md`, so the compiled output
 needs a hard budget or it is silently truncated.
 
+### Claude Code also supports a zero-command install — with a catch
+
+A committed `.claude/settings.json` carrying `extraKnownMarketplaces` (a relative
+`directory` source) plus `enabledPlugins` makes an in-repo plugin's hooks fire,
+with `CLAUDE_PLUGIN_ROOT` pointing into the working tree — no copy, no install
+command, no network. (All three keys VERIFIED present in the 2.1.241 binary.)
+This is the same clone-and-go shape as pi's committed settings file.
+
+The catch is that it is also a standing RCE primitive: **once the directory is
+trusted, editing the in-repo hook executes the new command on the next session —
+no prompt, no hash check, no diff.** Codex does not have this problem, because it
+pins each in-repo hook by SHA-256 in the user's global config.
+
+Two further consequences, both measured:
+
+- **Workspace trust is fail-closed, and silently so.** Under `-p`, trust is not
+  granted (despite `--help` saying the dialog is "skipped"), so project-scope
+  hooks do not load. CI gets delivery but not capture, and nothing says so.
+  `jedimem status` must report it.
+- **Update checks must not use the GitHub API.** The unauthenticated limit is 60/hr
+  *per IP*, and conditional `304 Not Modified` responses still decrement quota. Use
+  `git ls-remote` (~0.6 s, separate budget) behind a 24 h jittered TTL in an
+  `async: true` hook, degrading to a no-op offline.
+
 ### pi: nothing required, much available
 
 pi needs **no integration for delivery** — it reads `AGENTS.md` and `CLAUDE.md`
@@ -341,6 +365,29 @@ monorepo scoping.
 `usage_count`/`last_usage`; we should too — it is the retirement signal mem0
 lacks).
 
+## 11a. Open decision: where does the executable part live?
+
+The product goal says the plugin lives in the repo root, so a teammate clones and
+goes. The security research says the opposite: ship executable content *outside*
+the repo, version-pinned, and keep only data in-repo.
+
+Both are defensible, and the split is clean because capture and delivery carry
+different risk:
+
+| Component | In-repo? | Why |
+|---|---|---|
+| memory files, config, compiled instruction sections | **yes** | data, not code; reviewed as a diff; the entire point |
+| capture hook script, plugin/extension code | **contested** | executes on every teammate's machine |
+
+**Proposed compromise:** the in-repo hook is a fixed, tiny, reviewed shim that only
+signals a daemon installed out-of-repo and version-pinned. The repo then contains
+no logic worth attacking — editing the shim buys an attacker a socket call, not
+arbitrary payload execution. Clone-and-go survives for *data*; the standing RCE
+primitive disappears for *code*.
+
+**This needs a human decision before M2.** See
+`docs/research/05-distribution-security.md` §6.2.
+
 ## 12. What we deliberately do not build
 
 - No vector database, no embeddings, until BM25 + `grep` are measurably beaten.
@@ -351,6 +398,9 @@ lacks).
 - No touching `pi.on("before_provider_request")` — rewriting provider requests is
   how a memory tool becomes the prime suspect for every unrelated bug.
 - No memory whose subject is a person.
+- No memory that grants capability — no tool permissions, allow-lists, hook
+  definitions, or executable paths.
+- No `curl | sh` install path, no floating version refs, no post-install scripts.
 - No deletion. Supersede, and keep the history.
 
 ## 13. The honest competitive position

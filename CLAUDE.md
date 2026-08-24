@@ -9,6 +9,7 @@ Hand-written content lives here and is never touched by jedimem.
      is yours and always wins. -->
 
 - **[constraint]** Extraction must structurally exclude the agent's own injected memories, with a test that fails if the filter is removed.
+- **[constraint]** An in-repo Claude Code plugin is a standing RCE primitive: once the directory is trusted, an edited hook re-executes with no prompt, no hash check and no diff.
 - **[gotcha]** Never run `git add` or `git commit` from a background process in a repo a human is also using.
 - **[gotcha]** A custom git ref cannot be the sharing mechanism between teammates — only a staging area.
 - **[negative]** We tried `merge=union` for append-heavy memory files and rejected it.  _(scope: `.gitattributes`)_

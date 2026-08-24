@@ -3,11 +3,12 @@
 **Who this is for:** a team adopting jedimem, and the person who has to justify it
 in review.
 
-> **Read this first.** jedimem is not implemented yet. This document specifies the
-> intended interface — it is simultaneously the team guide and the acceptance spec
-> for the build. Commands shown do not exist today. Everything about *behavior
-> under git* and *how the agents integrate* is measured and real
-> (`docs/research/`); everything about the CLI is a commitment we intend to meet.
+> **What works today:** `init`, `import`, `review`, `compile`, `status`, `why`,
+> `contest`, `list`, `lint`, `pause`/`resume` — with 32 tests. Memory capture from
+> live agent sessions (the hooks and the extraction daemon) is designed but not
+> built, so today jedimem is a *bootstrap and curation* tool: it imports what your
+> repo already knows, and compiles it into the files your agents read.
+> Everything about behaviour under git is measured, not assumed (`docs/research/`).
 
 ---
 
@@ -26,14 +27,14 @@ instruction files your agents already read.
 
 ## 2. Before you adopt: run the free evaluation
 
-Do not install anything yet. You already have months of agent sessions on disk.
-
 ```bash
-jedimem preview
+jedimem init
+jedimem import        # dry run by default
 ```
 
-This reads your existing local transcripts, extracts candidate memories, prints
-them, and **writes nothing**. No install, no commit, no config.
+This reads what your repo already contains — instruction files, ADRs, CODEOWNERS,
+and revert commits — and prints candidate memories. It **writes nothing**, makes
+**no network calls**, and uses **no model**. Safe on a private repo.
 
 Judge the output as a team. If it surfaces things you recognize as knowledge you
 have re-explained to an agent more than once, adopt it. If it looks like noise,

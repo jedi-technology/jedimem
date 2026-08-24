@@ -1,0 +1,4 @@
+#!/bin/sh
+# jedimem launcher. Standard library only -- no venv, no pip, no network.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PYTHONPATH="$here/../src:${PYTHONPATH:-}" exec python3 -m jedimem "$@"

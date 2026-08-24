@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jedimem"
+version = "0.1.0"
+description = "Team memory for coding agents, stored as files in your repo."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+keywords = ["ai", "agents", "memory", "claude-code", "codex", "git"]
+# No runtime dependencies, deliberately: the install path must work with
+# nothing but python3 and git. See docs/research/05-distribution-security.md.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/jedi-technology/jedimem"
+Documentation = "https://github.com/jedi-technology/jedimem/blob/main/docs/TEAM-GUIDE.md"
+
+[project.scripts]
+jedimem = "jedimem.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -8,3 +8,8 @@
 # Python bytecode from bin/ tooling
 __pycache__/
 *.pyc
+
+# Python packaging artifacts
+*.egg-info/
+build/
+dist/

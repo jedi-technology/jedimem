@@ -10,21 +10,73 @@ without per-tool magic.
 
 Memory lives next to the code, is reviewed like code, and is shared like code.
 
-> **Status: research and design complete. One component built.**
->
-> | Piece | State |
-> |---|---|
-> | `docs/research/` — RE of Claude Code, Codex, pi + git experiments | **done, measured** |
-> | `bin/jedimem-compile` — memories → `AGENTS.md`/`CLAUDE.md` | **working**, 7 contract tests green |
-> | `plugins/` — hook + settings artifacts per agent | **written**, not yet wired by an installer |
-> | capture daemon, extraction, `jedimem` CLI, install | designed, **not built** |
->
-> ```bash
-> ./bin/jedimem-compile --check   # CI: fails if compiled files are stale
-> sh tests/test_compile.sh        # PASS: compiler contract holds
-> ```
->
-> Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first.
+## Install
+
+```bash
+pipx install git+https://github.com/jedi-technology/jedimem@v0.1.0
+# or, with no install at all:
+git clone https://github.com/jedi-technology/jedimem && ./jedimem/bin/jedimem --help
+```
+
+No runtime dependencies. Python 3.9+ and `git` are the whole requirement — the
+install path must not need a package manager, a virtualenv, or network access.
+
+## Already have a repo? Start there.
+
+A mature repo is not a blank slate. It already encodes years of convention in
+places nobody calls memory:
+
+```bash
+cd your-repo
+jedimem init
+jedimem import          # dry run: shows what it found, writes nothing
+```
+
+`jedimem import` reads what your team has already written and proposes memories
+from it — **deterministically, offline, with no model in the loop**:
+
+| Source | What it finds |
+|---|---|
+| `--from instructions` | `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/*.mdc`, `.claude/rules/*.md`, `.github/copilot-instructions.md`, `CONVENTIONS.md`, `.windsurfrules`, … |
+| `--from adr` | `docs/adr/**` — accepted ADRs become `decision`; **superseded ones become `negative` knowledge** |
+| `--from git` | revert commits — the cheapest record of "we tried this and backed it out" |
+| `--from codeowners` | `CODEOWNERS` → who to ask, scoped to the paths they own |
+
+Nothing is written until you say so:
+
+```bash
+jedimem import --stage    # stage for review (working tree untouched)
+jedimem review            # approve/reject, with provenance on every candidate
+jedimem compile           # regenerate the AGENTS.md / CLAUDE.md sections
+```
+
+This matters because the alternative is a tool that is worthless for as long as
+it takes to accumulate memories from live sessions — which is longer than it
+takes people to uninstall it.
+
+**It will also tell you when importing is a bad idea.** On a real repo, importing
+every instruction file produced 289 candidates; jedimem says so, cites the
+evidence that unbounded memory *lowers* agent accuracy, and suggests a slice you
+can actually review. And when a source file is also a compile target, it warns
+that you would otherwise carry the same rule twice.
+
+## Status
+
+| Piece | State |
+|---|---|
+| `jedimem init / import / review / compile / status / why / contest / list / lint / pause` | **working**, 32 tests |
+| import from instructions, ADRs, CODEOWNERS, git reverts | **working**, deterministic and offline |
+| lock-free staging ref, redaction, budget demotion, provenance | **working** |
+| capture hooks wired by an installer; LLM extraction from live sessions | designed, **not built** |
+
+```bash
+python3 tests/test_jedimem.py     # 32 tests
+./bin/jedimem lint                # memory files valid
+./bin/jedimem compile --check     # CI: fails if compiled files are stale
+```
+
+Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the
+evidence behind it.
 
 ## Why this instead of a hand-written `AGENTS.md`
 

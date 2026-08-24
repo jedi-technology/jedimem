@@ -43,7 +43,11 @@ jobs:
         run: |
           # Supply chain is threat T1 in SECURITY.md. Keep direct deps few and
           # justified; fail loudly if someone adds one without discussion.
-          cargo tree --depth 1 | tail -n +2
-          n=$(cargo tree --depth 1 | tail -n +2 | grep -c '^[├└]')
+          # --color never matters: CARGO_TERM_COLOR=always injects ANSI escapes
+          # that break a line-anchored grep. `|| true` matters because grep
+          # exits non-zero on a zero count, which `bash -e` treats as failure.
+          cargo tree --depth 1 --color never | tail -n +2
+          n=$(cargo tree --depth 1 --color never | tail -n +2 | grep -c '^[├└]' || true)
           echo "direct dependencies: $n"
+          test "$n" -ge 1 || { echo "dependency count looks wrong: $n"; exit 1; }
           test "$n" -le 5 || { echo "too many direct dependencies"; exit 1; }

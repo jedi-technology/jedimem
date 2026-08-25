@@ -198,7 +198,7 @@ pub fn compile_repo(
 fn strip_section(text: &str, begin: &str, end: &str) -> String {
     if text.contains(begin) && text.contains(end) {
         let pre = text.split(begin).next().unwrap_or("");
-        let post = text.splitn(2, end).nth(1).unwrap_or("");
+        let post = text.split_once(end).map(|x| x.1).unwrap_or("");
         return format!("{}{}", pre.trim_end_matches('\n'), post);
     }
     text.to_string()

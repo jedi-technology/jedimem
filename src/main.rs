@@ -1310,9 +1310,11 @@ fn cmd_install(a: &Args, c: &Ctx) -> Result<i32, String> {
     let mut acted = 0;
     for agent in &wanted {
         let present = install::is_installed(agent);
-        // Detect, never assume: don't wire an agent this machine doesn't have,
-        // unless the user is explicitly preparing the repo for teammates.
-        if !present && !a.has("--all") && a.one("agent").is_none() {
+        // Detection gates INSTALL only. On uninstall we must clean up whatever
+        // config exists, even for an agent this machine never had -- otherwise a
+        // teammate who removes jedimem leaves our hooks behind in the repo for
+        // everyone else.
+        if !uninstall && !present && !a.has("--all") && a.one("agent").is_none() {
             println!(
                 "  {:12} {}not installed on this machine -- skipped{}",
                 agent.name(),

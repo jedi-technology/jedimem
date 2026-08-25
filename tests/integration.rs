@@ -931,3 +931,54 @@ fn uninstall_leaves_memories_and_foreign_config_alone() {
         assert!(!has_ours, "our hook should be gone");
     }
 }
+
+/// A PATH containing git but none of the agent CLIs, so `is_installed` is false
+/// for all of them while jedimem still works.
+fn git_only_path() -> std::ffi::OsString {
+    let dir = std::env::temp_dir().join(format!("jedimem-gitonly-{}", ulid()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = String::from_utf8_lossy(
+        &Command::new("sh")
+            .args(["-c", "command -v git"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .trim()
+    .to_string();
+    #[cfg(unix)]
+    {
+        let link = dir.join("git");
+        if !link.exists() {
+            let _ = std::os::unix::fs::symlink(&git, &link);
+        }
+    }
+    dir.into_os_string()
+}
+
+#[test]
+fn uninstall_cleans_up_agents_this_machine_never_had() {
+    // CI has no agent binaries installed. Detection must gate install only:
+    // skipping uninstall for an absent agent leaves our hooks in the repo for
+    // every teammate. Found by CI, not by a developer machine that had all three.
+    let d = new_repo();
+    cli(&["init"], &d);
+    cli(&["install", "--all"], &d); // write config for agents regardless of presence
+    assert!(d.join(".codex/hooks.json").exists());
+
+    let out = Command::new(bin())
+        .args(["uninstall"])
+        .current_dir(&d)
+        .env("NO_COLOR", "1")
+        // A PATH with git but no agent binaries -- jedimem itself needs git.
+        .env("PATH", git_only_path())
+        .env(
+            "XDG_CACHE_HOME",
+            std::env::temp_dir().join("jedimem-test-cache"),
+        )
+        .output()
+        .expect("run");
+    assert!(out.status.success());
+    let left = std::fs::read_to_string(d.join(".codex/hooks.json")).unwrap_or_default();
+    assert!(!left.contains("jedimem"), "hooks left behind: {}", left);
+}

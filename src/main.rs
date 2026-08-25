@@ -7,6 +7,7 @@
 use jedimem::compiler;
 use jedimem::config::{self, Config};
 use jedimem::importers::{self, SOURCES};
+use jedimem::install;
 use jedimem::memory::{kind_info, ulid, Memory, KINDS, LOCAL_ONLY_KINDS};
 use jedimem::migrate;
 use jedimem::repo;
@@ -87,7 +88,8 @@ impl Args {
 }
 
 /// Options that take a value. Everything else is a boolean flag.
-const VALUE_OPTS: [&str; 7] = [
+/// Options that take a value.
+const VALUE_OPTS: [&str; 10] = [
     "--root",
     "--from",
     "--limit",
@@ -95,6 +97,27 @@ const VALUE_OPTS: [&str; 7] = [
     "--approve",
     "--reject",
     "--kind",
+    "--remote",
+    "--agent",
+    "--pin",
+];
+
+/// Boolean flags. Anything not in either list is a typo, and a typo must fail
+/// loudly: silently treating `--agnet codex` as a no-op flag is how a user ends
+/// up believing they scoped a command that actually ran against everything.
+const BOOL_FLAGS: [&str; 12] = [
+    "--all",
+    "--check",
+    "--dry-run",
+    "--stage",
+    "--commit",
+    "--list-sources",
+    "--approve-all",
+    "--force",
+    "--json",
+    "--quiet",
+    "--check-only",
+    "--uninstall",
 ];
 
 fn parse(argv: &[String]) -> Result<Args, String> {
@@ -121,8 +144,10 @@ fn parse(argv: &[String]) -> Result<Args, String> {
                     .entry(name.trim_start_matches("--").to_string())
                     .or_default()
                     .push(val);
-            } else {
+            } else if BOOL_FLAGS.contains(&name.as_str()) {
                 a.flags.push(name);
+            } else {
+                return Err(format!("unknown option {}", name));
             }
         } else if a.cmd.is_empty() {
             a.cmd = t.clone();
@@ -750,6 +775,8 @@ USAGE
 
 COMMANDS
   init                     create .jedimem/ in this repo
+  install [--agent X]      wire jedimem into the agents you have installed
+  uninstall                remove those hooks (keeps your memories)
   import                   bootstrap memory from what this repo already knows
   review                   approve or reject pending candidates
   compile [--check]        regenerate the AGENTS.md / CLAUDE.md sections
@@ -866,6 +893,13 @@ fn main() -> ExitCode {
         "migrate" => cmd_migrate(&args, &c),
         "update" => cmd_update(&args, Some(&c)),
         "doctor" => cmd_doctor(&args, &c),
+        "install" => cmd_install(&args, &c),
+        "merge-driver" => cmd_merge_driver(&args, &c),
+        "uninstall" => {
+            let mut a2 = args;
+            a2.flags.push("--uninstall".into());
+            cmd_install(&a2, &c)
+        }
         "pause" => cmd_pause("pause", &c),
         "resume" => cmd_pause("resume", &c),
         other => Err(format!("unknown command {:?}\n\n{}", other, usage())),
@@ -1243,4 +1277,162 @@ fn cmd_doctor(_a: &Args, c: &Ctx) -> Result<i32, String> {
         }
     }
     Ok(0)
+}
+
+// ------------------------------------------------------------------ install
+
+fn cmd_install(a: &Args, c: &Ctx) -> Result<i32, String> {
+    let s = style();
+    let uninstall = a.has("--uninstall");
+    let pin = a
+        .one("pin")
+        .unwrap_or_else(|| format!("v{}", jedimem::VERSION));
+
+    let wanted: Vec<install::AgentKind> = match a.one("agent") {
+        Some(name) => install::ALL_AGENTS
+            .iter()
+            .filter(|x| x.name() == name)
+            .cloned()
+            .collect(),
+        None => install::ALL_AGENTS.to_vec(),
+    };
+    if wanted.is_empty() {
+        return Err(format!(
+            "unknown agent; choose from {}",
+            install::ALL_AGENTS
+                .iter()
+                .map(|a| a.name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    let mut acted = 0;
+    for agent in &wanted {
+        let present = install::is_installed(agent);
+        // Detect, never assume: don't wire an agent this machine doesn't have,
+        // unless the user is explicitly preparing the repo for teammates.
+        if !present && !a.has("--all") && a.one("agent").is_none() {
+            println!(
+                "  {:12} {}not installed on this machine -- skipped{}",
+                agent.name(),
+                s.dim,
+                s.off
+            );
+            continue;
+        }
+        let r = if uninstall {
+            install::uninstall_agent(agent, &c.root)?
+        } else {
+            install::install_agent(agent, &c.root, &pin)?
+        };
+        let colour = match r.action {
+            "installed" | "updated" | "removed" => s.grn,
+            _ => s.dim,
+        };
+        println!(
+            "  {:12} {}{}{}  {}{}",
+            r.agent,
+            colour,
+            r.action,
+            s.off,
+            r.path,
+            if r.note.is_empty() {
+                String::new()
+            } else {
+                format!("  ({})", r.note)
+            }
+        );
+        acted += 1;
+    }
+
+    if !uninstall {
+        match install::register_merge_driver(&c.root, &c.cfg.targets()) {
+            Ok(added) => println!(
+                "  {:12} {}{}{}  merge driver for {}",
+                "merge",
+                s.grn,
+                if added { "registered" } else { "already set" },
+                s.off,
+                c.cfg.targets().join(", ")
+            ),
+            Err(e) => println!(
+                "  {:12} {}could not register: {}{}",
+                "merge", s.yel, e, s.off
+            ),
+        }
+        match install::install_git_hooks(&c.root) {
+            Ok(hooks) if !hooks.is_empty() => println!(
+                "  {:12} {}installed{}  {}",
+                "git hooks",
+                s.grn,
+                s.off,
+                hooks.join(", ")
+            ),
+            Ok(_) => println!("  {:12} {}already present{}", "git hooks", s.dim, s.off),
+            Err(e) => println!("  {:12} {}skipped: {}{}", "git hooks", s.yel, e, s.off),
+        }
+    }
+    if uninstall {
+        println!(
+            "\n{}Uninstalled.{} Your memories in {} were left alone --",
+            s.grn,
+            s.off,
+            c.store.mem_dir().display()
+        );
+        println!("  they are your team's files, not ours.");
+        return Ok(0);
+    }
+
+    if acted == 0 {
+        println!(
+            "\n{}No supported agent found on this machine.{}",
+            s.yel, s.off
+        );
+        println!("  Use --all to write the config anyway (useful when preparing a repo");
+        println!("  for teammates who do have them).");
+        return Ok(0);
+    }
+
+    // Initialise if needed, so `install` is the only command a newcomer needs.
+    if migrate::repo_format(&c.root).is_none() {
+        println!(
+            "\n{}Not initialised yet.{} Run: {}jedimem init{}",
+            s.yel, s.off, s.bold, s.off
+        );
+    }
+    println!(
+        "\n{}Installed.{} Commit these files so your teammates get them:",
+        s.grn, s.off
+    );
+    println!("  git add .claude .codex .pi .jedimem 2>/dev/null; git commit -m \"add jedimem\"");
+    println!(
+        "\nNext: {}jedimem import{}  (dry run -- shows what this repo already knows)",
+        s.bold, s.off
+    );
+    Ok(0)
+}
+
+/// `git merge-file`-compatible driver: `jedimem merge-driver %A %O %B`.
+///
+/// Registered by `jedimem install`. Merge drivers live in per-clone git config
+/// and are deliberately NOT cloned, which is why install (which runs per clone)
+/// is the right place to set it up.
+fn cmd_merge_driver(a: &Args, c: &Ctx) -> Result<i32, String> {
+    if a.positional.len() < 3 {
+        return Err("usage: jedimem merge-driver <ours> <base> <theirs>".into());
+    }
+    let mems = c.store.all(false).map_err(|e| e.to_string())?;
+    let clean = compiler::merge_driver(
+        Path::new(&a.positional[0]),
+        Path::new(&a.positional[1]),
+        Path::new(&a.positional[2]),
+        &c.root,
+        &mems,
+        &c.cfg,
+    )
+    .map_err(|e| e.to_string())?;
+    // Non-zero tells git a conflict remains -- only ever for the human-written
+    // part, since the generated section is always regenerated cleanly.
+    Ok(if clean { 0 } else { 1 })
 }

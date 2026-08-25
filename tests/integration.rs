@@ -540,10 +540,14 @@ fn compile_targets_parse_as_a_list() {
 // --------------------------------------------------------------------- cli
 
 fn cli(args: &[&str], cwd: &Path) -> (String, i32) {
+    // Hermetic: never read the developer's real update cache, or a pending
+    // "new version available" notice leaks into unrelated assertions.
+    let cache = std::env::temp_dir().join("jedimem-test-cache");
     let out = Command::new(bin())
         .args(args)
         .current_dir(cwd)
         .env("NO_COLOR", "1")
+        .env("XDG_CACHE_HOME", &cache)
         .output()
         .expect("run jedimem");
     (
@@ -739,6 +743,7 @@ fn session_start_always_exits_zero() {
 
 #[test]
 fn session_start_is_silent_when_there_is_nothing_to_say() {
+    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("jedimem-test-cache"));
     let d = new_repo();
     cli(&["init"], &d);
     cli(&["compile"], &d);
@@ -803,4 +808,126 @@ fn migrate_check_is_ci_friendly() {
         1,
         "must fail CI when out of date"
     );
+}
+
+#[test]
+fn install_wires_agents_without_clobbering_existing_config() {
+    let d = new_repo();
+    std::fs::create_dir_all(d.join(".claude")).unwrap();
+    std::fs::write(
+        d.join(".claude/settings.json"),
+        r#"{"permissions":{"allow":["Bash(make verify)"]},
+            "hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"./warm.sh"}]}],
+                     "PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"make fmt"}]}]}}"#,
+    ).unwrap();
+    cli(&["init"], &d);
+    assert_eq!(cli(&["install", "--all"], &d).1, 0);
+
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(d.join(".claude/settings.json")).unwrap())
+            .expect("still valid JSON");
+    assert!(
+        v["permissions"]["allow"].is_array(),
+        "their settings survived"
+    );
+    let ss = v["hooks"]["SessionStart"].as_array().unwrap();
+    assert_eq!(ss.len(), 2, "ours appended, theirs kept");
+    assert!(
+        v["hooks"]["PostToolUse"].is_array(),
+        "unrelated hooks untouched"
+    );
+
+    // Idempotent: running twice must not duplicate our entry.
+    assert_eq!(cli(&["install", "--all"], &d).1, 0);
+    let v2: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(d.join(".claude/settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(v2["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn install_registers_merge_driver_and_git_hooks() {
+    // Both are per-clone (git never clones hooks or merge drivers), so install
+    // is the only place they can be set up -- and a silent omission here means
+    // every teammate hits merge conflicts on generated files.
+    let d = new_repo();
+    cli(&["init"], &d);
+    cli(&["install", "--all"], &d);
+
+    let driver = String::from_utf8_lossy(
+        &Command::new("git")
+            .args(["config", "--local", "--get", "merge.jedimem.driver"])
+            .current_dir(&d)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .trim()
+    .to_string();
+    assert!(
+        driver.contains("jedimem merge-driver"),
+        "driver not registered: {:?}",
+        driver
+    );
+
+    let ga = std::fs::read_to_string(d.join(".gitattributes")).unwrap_or_default();
+    assert!(
+        ga.contains("AGENTS.md merge=jedimem"),
+        "gitattributes: {:?}",
+        ga
+    );
+
+    for hook in ["post-merge", "post-checkout"] {
+        let p = d.join(".git/hooks").join(hook);
+        assert!(p.exists(), "{} hook missing", hook);
+        assert!(std::fs::read_to_string(&p)
+            .unwrap()
+            .contains("jedimem compile"));
+    }
+}
+
+#[test]
+fn uninstall_leaves_memories_and_foreign_config_alone() {
+    let d = new_repo();
+    std::fs::write(
+        d.join("CLAUDE.md"),
+        "# R\n- Use httpClient, never axios directly.\n",
+    )
+    .unwrap();
+    cli(&["init"], &d);
+    cli(&["install", "--all"], &d);
+    cli(&["import", "--stage"], &d);
+    let review = cli(&["review"], &d).0;
+    let handle = review
+        .lines()
+        .find(|l| {
+            l.len() > 8
+                && l.chars()
+                    .take(8)
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        })
+        .and_then(|l| l.split_whitespace().next())
+        .unwrap()
+        .to_string();
+    cli(&["review", "--approve", &handle], &d);
+    let before = std::fs::read_dir(d.join(".jedimem/memories"))
+        .unwrap()
+        .count();
+    assert!(before > 0);
+
+    assert_eq!(cli(&["uninstall"], &d).1, 0);
+    let after = std::fs::read_dir(d.join(".jedimem/memories"))
+        .unwrap()
+        .count();
+    assert_eq!(before, after, "uninstall must not delete memories");
+    let claude = d.join(".claude/settings.json");
+    if claude.exists() {
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&claude).unwrap()).unwrap();
+        let has_ours = v["hooks"]["SessionStart"]
+            .as_array()
+            .map(|a| a.iter().any(|e| e.to_string().contains("jedimem")))
+            .unwrap_or(false);
+        assert!(!has_ours, "our hook should be gone");
+    }
 }

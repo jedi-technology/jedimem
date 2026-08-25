@@ -61,4 +61,4 @@ jobs:
           n=$(cargo tree --depth 1 --color never | tail -n +2 | grep -c '^[├└]' || true)
           echo "direct dependencies: $n"
           test "$n" -ge 1 || { echo "dependency count looks wrong: $n"; exit 1; }
-          test "$n" -le 5 || { echo "too many direct dependencies"; exit 1; }
+          test "$n" -le 6 || { echo "too many direct dependencies"; exit 1; }

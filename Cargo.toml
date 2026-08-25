@@ -20,6 +20,11 @@ repository = "https://github.com/jedi-technology/jedimem"
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
 sha2 = "0.10"
 getrandom = "0.2"
+# serde_json: the installer MERGES into a user's existing .claude/settings.json.
+# Hand-rolling a JSON parser is exactly the wrong place to save a dependency --
+# mangling someone's agent config is a serious failure, and this is the most
+# audited JSON crate available. preserve_order keeps their key order intact.
+serde_json = { version = "1", features = ["preserve_order"] }
 
 # Already in the tree via getrandom, so this adds no new compiled code. Needed
 # to restore default SIGPIPE: Rust ignores it, so `jedimem list | head` panics
@@ -33,3 +38,6 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[dev-dependencies]
+serde_json = "1"

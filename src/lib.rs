@@ -2,6 +2,7 @@
 pub mod compiler;
 pub mod config;
 pub mod importers;
+pub mod install;
 pub mod memory;
 pub mod migrate;
 pub mod redact;
